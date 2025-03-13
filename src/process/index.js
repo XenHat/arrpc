@@ -51,10 +51,10 @@ export default class ProcessServer {
         toCompare.push(p.replace('.x64', ''));
         toCompare.push(p.replace('x64', ''));
         toCompare.push(p.replace('_64', ''));
-        toCompare.push(p.replace('.exe', ''));
+        toCompare.push(p.replace('.exe', '')); // required to match against (bogus) entries without .exe suffix
       }
 
-      // remove duplicates to process
+      // performance: remove duplicate elements to process
       const UniqueToCompare = []
       for (const u of toCompare) {
         if (!UniqueToCompare.includes(u)) {
@@ -62,24 +62,20 @@ export default class ProcessServer {
         }
       }
       
-      if (UniqueToCompare.length < 1) { // Skip empty path
+      if (UniqueToCompare.length < 1) { // performance: Skip empty path
         continue
       }
 
       for (const { executables, id, name } of DetectableDB) {
         if (executables?.some(x => {
           if (x.is_launcher) return false;
-          // I can't figure how to not make 'sbin/init' NOT match 'Divinity Original Sin' with a substring match, so this ugly hack have to do for now
           for (const comp of UniqueToCompare) {
-            const asdf = comp.includes('.exe')
-            if (asdf) {
-              // TODO: Do the reverse; check if x.name contains game/ or /games and THEN check against game/comp and games/comp
-              const alternative1 = 'game/' + comp
-              const alternative2 = 'games/' + comp
-              const ghjk = x.name.includes(alternative1)
-              const zxc = x.name.includes(alternative2)
-              if (ghjk || zxc) {
-                  return true
+            if (comp.includes('.exe')) {
+              if (x.name.includes('game/'+comp)) {
+                return true
+              }
+              if (x.name.includes('games/'+comp)) {
+                return true
               }
             }
           }
