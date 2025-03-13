@@ -51,7 +51,6 @@ export default class ProcessServer {
         toCompare.push(p.replace('.x64', ''));
         toCompare.push(p.replace('x64', ''));
         toCompare.push(p.replace('_64', ''));
-        toCompare.push(p.replace('.exe', '')); // required to match against (bogus) entries without .exe suffix
       }
 
       // performance: remove duplicate elements to process
