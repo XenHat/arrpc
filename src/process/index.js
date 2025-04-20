@@ -11,6 +11,32 @@ const DetectableDB = JSON.parse(fs.readFileSync(join(__dirname, 'detectable.json
 import * as Natives from './native/index.js';
 const Native = Natives[process.platform];
 
+function basename(str) {
+  return str.substr(str.lastIndexOf('/') + 1);
+}
+
+// https://stackoverflow.com/a/56641259
+/**
+ * Replaces all occurrences of words in a sentence with new words.
+ * @function
+ * @param {string} sentence - The sentence to modify.
+ * @param {Object} wordsToReplace - An object containing words to be replaced as the keys and their replacements as the values.
+ * @returns {string} - The modified sentence.
+ */
+function replaceAll(sentence, wordsToReplace) {
+  return Object.keys(wordsToReplace).reduce(
+    (f, s, i) =>
+      `${f}`.replace(new RegExp(s, 'ig'), wordsToReplace[s]),
+      sentence
+  )
+}
+
+const bitness_suffixes = {
+  '.x64': '',
+  '_64': '',
+  'x64': '',
+  '64': '',
+}
 
 const timestamps = {}, names = {}, pids = {};
 export default class ProcessServer {
@@ -35,24 +61,22 @@ export default class ProcessServer {
     // log(`got processed in ${(performance.now() - startTime).toFixed(2)}ms`);
 
     for (const [ pid, _path, args, _cwdPath = '' ] of processes) {
+      if (_path.length < 1) continue;
       const path = _path.toLowerCase().replaceAll('\\', '/');
       const cwdPath = _cwdPath.toLowerCase().replaceAll('\\', '/');
       const toCompare = [];
-      const splitPath = path.split('/');
-      for (let i = 1; i < splitPath.length || i == 1; i++) {
-        toCompare.push(splitPath.slice(-i).join('/'));
-      }
 
-      for (const p of toCompare.slice()) { // add more possible tweaked paths for less false negatives
-        toCompare.push(p.replace('64', '')); // remove 64bit identifiers-ish
-        toCompare.push(p.replace('.x64', ''));
-        toCompare.push(p.replace('x64', ''));
-        toCompare.push(p.replace('_64', ''));
+      let newPath = basename(path);
+      if (path.includes(' --')) {
+        newPath = path.split(' --')[0];
       }
+      toCompare.push(newPath);
+      replaceAll(toCompare,bitness_suffixes);
 
       for (const { executables, id, name } of DetectableDB) {
         if (executables?.some(x => {
           if (x.is_launcher) return false;
+          if (toCompare.some(y => y.includes('.exe') && (x.name.includes('game/'+y) || x.name.includes('games/'+y)))) return true;
           if (x.name[0] === '>' ? x.name.substring(1) !== toCompare[0] : !toCompare.some(y => x.name === y || `${cwdPath}/${y}`.includes(`/${x.name}`))) return false;
           if (args && x.arguments) return args.join(" ").indexOf(x.arguments) > -1;
           return true;
