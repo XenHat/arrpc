@@ -58,7 +58,7 @@ export default class ProcessServer {
     const processes = await Native.getProcesses();
     const ids = [];
 
-    // log(`got processed in ${(performance.now() - startTime).toFixed(2)}ms`);
+    // log(`got processes list in ${(performance.now() - startTime).toFixed(2)}ms`);
 
     for (const [ pid, _path, args, _cwdPath = '' ] of processes) {
       if (_path.length < 1) continue;
