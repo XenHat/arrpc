@@ -11,10 +11,6 @@ const DetectableDB = JSON.parse(fs.readFileSync(join(__dirname, 'detectable.json
 import * as Natives from './native/index.js';
 const Native = Natives[process.platform];
 
-function basename(str) {
-  return str.substr(str.lastIndexOf('/') + 1);
-}
-
 // https://stackoverflow.com/a/56641259
 /**
  * Replaces all occurrences of words in a sentence with new words.
@@ -38,6 +34,16 @@ const bitness_suffixes = {
   '64': '',
 }
 
+String.prototype.replaceArray = function(find, replace) {
+  var replaceString = this;
+  var regex; 
+  for (var i = 0; i < find.length; i++) {
+    regex = new RegExp(find[i], "g");
+    replaceString = replaceString.replace(regex, replace[i]);
+  }
+  return replaceString;
+};
+
 const timestamps = {}, names = {}, pids = {};
 export default class ProcessServer {
   constructor(handlers) {
@@ -60,27 +66,91 @@ export default class ProcessServer {
 
     // log(`got processes list in ${(performance.now() - startTime).toFixed(2)}ms`);
 
-    for (const [ pid, _path, args, _cwdPath = '' ] of processes) {
-      if (_path.length < 1) continue;
-      const path = _path.toLowerCase().replaceAll('\\', '/');
+    for (const [pid, _path, args, _cwdPath = ''] of processes) {
+      if (pid === 1) continue // init system
+      if (_path.length < 1) continue; // process has no name, i.e. kernel thread
+      if (_path.startsWith('/proc')) continue; // internal *nix stuff
+      if (_path.startsWith('/usr/lib/')) continue; // internal *nix stuff
+      if (_path.includes('systemd')) continue;
       const cwdPath = _cwdPath.toLowerCase().replaceAll('\\', '/');
-      const toCompare = [];
+      const path = _path.toLowerCase().replaceAll('\\', '/');
+      if (path.startsWith('c:/windows')) continue // system processes (wine)
+      if (_path.includes('webhelper')) continue; // CEF Processes
 
-      let newPath = basename(path);
+      const toCompare = [];
+      let newPath
       if (path.includes(' --')) {
         newPath = path.split(' --')[0];
       }
-      toCompare.push(newPath);
-      replaceAll(toCompare,bitness_suffixes);
+      else
+      {
+        newPath = path;
+      }
+      newPath = newPath.substr(newPath.lastIndexOf('/') + 1);
 
+      // log(`performance checkpoint: ${(performance.now() - startTime).toFixed(2)}ms`);
+
+      toCompare.push(newPath);
+      if (path.includes('.exe')) {
+        const part2 = path.split('/').slice(-2).join('/');
+        toCompare.push(part2);
+        replaceAll(toCompare, bitness_suffixes);
+      }
+
+      // TODO: Convert into an inline function similar to findInObjArray
+      // TODO: Don't try to match the running executable more than once
       for (const { executables, id, name } of DetectableDB) {
-        if (executables?.some(x => {
-          if (x.is_launcher) return false;
-          if (toCompare.some(y => y.includes('.exe') && (x.name.includes('game/'+y) || x.name.includes('games/'+y)))) return true;
-          if (x.name[0] === '>' ? x.name.substring(1) !== toCompare[0] : !toCompare.some(y => x.name === y || `${cwdPath}/${y}`.includes(`/${x.name}`))) return false;
-          if (args && x.arguments) return args.join(" ").indexOf(x.arguments) > -1;
-          return true;
-        })) {
+        if (
+          executables?.some((known_exe) => {
+            if (known_exe.is_launcher) return false;
+            if (known_exe.name[0] === '>') {
+              if (known_exe.name.substring(1) === toCompare[0]) {
+                return true;
+              }
+            } else {
+              if (
+                toCompare.some((running) => {
+                  // if (running === 'exe') {
+                  //   throw new Error("Tried to match 'exe', this usually indicates a broken filter!")
+                  //   return false;
+                  // }
+                  // explicit match first
+                  if (known_exe.name === running) {
+                    // console.log(`Got explicit match:    ${known_exe.name} <==> ${running}`)
+                    return true;
+                  }
+                  // Try comparing against an exe.suffixed version (Linux native games and such)
+                  if (known_exe.name === running+'.exe') {
+                    return true
+                  }
+                  // Try comparing against an exe-less version (mistake in database)
+                  if (known_exe.name === running.replace('.exe','')) {
+                    return true
+                  }
+                  if (`${cwdPath}/${running}`.includes(`/${known_exe.name}`)
+                  ) {
+                    console.log('hiiiiiiiiiiiiiiiii ');
+                    return false;
+                  }
+                  if (
+                    running.includes('zenlesszonezero') &&
+                    known_exe.name.includes('zenlesszonezero')
+                  ) {
+                    // log(
+                    //   `WARNING: Failed to match known problematic but running game '${known_exe.name}' via '${running}\n`,
+                    //   'The database needs to be fixed to make the following match succeed:\n',
+                    //   `Running ==> [${running}] <==> [${known_exe.name}] <== Database`,
+                    // );
+                    return true
+                  }
+                })
+              ) {
+                return true;
+              }
+            }
+            if (args && known_exe.arguments) return args.join(" ").indexOf(known_exe.arguments) > -1;
+          })
+        ) {
           names[id] = name;
           pids[id] = pid;
 
