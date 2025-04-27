@@ -77,7 +77,7 @@ export default class ProcessServer {
       if (path.startsWith('c:/windows')) continue // system processes (wine)
       if (_path.includes('webhelper')) continue; // CEF Processes
       // TODO: add 'dolphin-emu' to database for linux executable
-      if (_path.endsWith('dolphin')) continue; // KDE file manager, not Dolphin Emulator
+      if (_path.endsWith('/bin/dolphin')) continue; // KDE file manager, not Dolphin Emulator
       const toCompare = [];
       let newPath
       if (path.includes(' --')) {
