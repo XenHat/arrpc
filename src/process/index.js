@@ -118,21 +118,23 @@ export default class ProcessServer {
                   // }
                   // explicit match first
                   if (known_exe.name === running) {
-                    // console.log(`Got explicit match:    ${known_exe.name} <==> ${running}`)
+                    console.log(`Got explicit match:    ${known_exe.name} <==> ${running}`)
                     return true;
                   }
                   // Try comparing against an exe.suffixed version (Linux native games and such)
                   if (known_exe.name === running+'.exe') {
+                    console.log(`Got exe match:    ${known_exe.name} <==> ${running}`)
                     return true
                   }
                   // Try comparing against an exe-less version (mistake in database)
                   if (known_exe.name === running.replace('.exe','')) {
+                  console.log(`Got exe-less (fixup) match:    ${known_exe.name} <==> ${running}`)
                     return true
                   }
                   if (`${cwdPath}/${running}`.includes(`/${known_exe.name}`)
                   ) {
-                    console.log('hiiiiiiiiiiiiiiiii ');
-                    return false;
+                    console.log(`Matched [${running}] with 'if ([${cwdPath}}/{${running}].includes(/[${known_exe.name}])'`)
+                    return true;
                   }
                   if (
                     running.includes('zenlesszonezero') &&
