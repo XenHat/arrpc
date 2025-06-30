@@ -106,8 +106,8 @@ export default class ProcessServer {
             if (known_exe.is_launcher) return false;
             if (known_exe.name[0] === '>') {
               if (known_exe.name.substring(1) === toCompare[0]) {
+                // TODO: Deduplicate with that version at the end of the following 'else' statement
                 if (args && known_exe.arguments) return args.join(" ").indexOf(known_exe.arguments) > -1;
-                return true;
               }
             } else {
               if (
