@@ -107,7 +107,10 @@ export default class ProcessServer {
             if (known_exe.name[0] === '>') {
               if (known_exe.name.substring(1) === toCompare[0]) {
                 // TODO: Deduplicate with that version at the end of the following 'else' statement
-                if (args && known_exe.arguments) return args.join(" ").indexOf(known_exe.arguments) > -1;
+                if (args && known_exe.arguments) {
+                  log(`Match Level 1: "${name}" via ${known_exe.name} <==> ${running}`);
+                  return args.join(" ").indexOf(known_exe.arguments) > -1;
+                }
               }
             } else {
               if (
@@ -118,22 +121,22 @@ export default class ProcessServer {
                   // }
                   // explicit match first
                   if (known_exe.name === running) {
-                    console.log(`Got explicit match:    ${known_exe.name} <==> ${running}`)
+                    log(`Match Level 2: "${name}" via ${known_exe.name} <==> ${running}`)
                     return true;
                   }
                   // Try comparing against an exe.suffixed version (Linux native games and such)
                   if (known_exe.name === running+'.exe') {
-                    console.log(`Got exe match:    ${known_exe.name} <==> ${running}`)
+                    log(`Match Level 3: "${name}" via ${known_exe.name} <==> ${running}`)
                     return true
                   }
                   // Try comparing against an exe-less version (mistake in database)
                   if (known_exe.name === running.replace('.exe','')) {
-                  console.log(`Got exe-less (fixup) match:    ${known_exe.name} <==> ${running}`)
+                    log(`Match Level 4: "${name}" via ${known_exe.name} <==> ${running}`)
                     return true
                   }
                   if (`${cwdPath}/${running}`.includes(`/${known_exe.name}`)
                   ) {
-                    console.log(`Matched [${running}] with 'if ([${cwdPath}}/{${running}].includes(/[${known_exe.name}])'`)
+                    log(`Match Level 5: "${name}" via [${running}] with 'if ([${cwdPath}}/{${running}].includes(/[${known_exe.name}])'`)
                     return true;
                   }
                   if (
