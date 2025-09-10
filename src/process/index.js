@@ -1,6 +1,5 @@
 const rgb = (r, g, b, msg) => `\x1b[38;2;${r};${g};${b}m${msg}\x1b[0m`;
 const log = (...args) => console.log(`[${rgb(88, 101, 242, 'arRPC')} > ${rgb(237, 66, 69, 'process')}]`, ...args);
-const debug = (...args) => console.debug(`[${rgb(88, 101, 242, 'arRPC')} > ${rgb(237, 66, 69, 'process (DEBUG)')}]`, ...args);
 
 import fs from 'node:fs';
 import { dirname, join } from 'path';
@@ -45,6 +44,82 @@ String.prototype.replaceArray = function(find, replace) {
   return replaceString;
 };
 
+// ------------------------ Refactor helpers -------------------------------
+/** Normalize a filesystem path for comparisons. */
+const normPath = (p = '') => String(p).toLowerCase().replaceAll('\\', '/');
+
+/** Strip common 64-bit suffixes from executable names. */
+const stripBitness = (s = '') => {
+  const suffixes = ['.x64', '_64', 'x64', '64'];
+  for (const suf of suffixes) {
+    if (s.endsWith(suf)) return s.slice(0, -suf.length);
+  }
+  return s;
+};
+
+/**
+ * Build a compact set of candidates we will try to match against the DB.
+ * Examples returned: ['eldenring.exe', 'eldenring', 'steamapps/common/eldenring.exe']
+ */
+const buildCandidates = (rawPath, cwdPath) => {
+  const out = new Set();
+  const p = normPath(rawPath);
+
+  // Drop CLI args if present (e.g., "C:/Games/foo/bar.exe --flag ...")
+  const noArgs = p.includes(' --') ? p.split(' --')[0] : p;
+  const base = noArgs.slice(noArgs.lastIndexOf('/') + 1);
+
+  out.add(stripBitness(base));
+
+  // For Windows-style exe paths, include the last 2 segments to catch DB entries
+  if (noArgs.includes('.exe')) {
+    const last2 = noArgs.split('/').slice(-2).join('/');
+    out.add(stripBitness(last2));
+  }
+
+  // Also include a cwd-anchored variant to help path.includes matches
+  if (cwdPath) out.add(`${normPath(cwdPath)}/${stripBitness(base)}`);
+
+  // Add exe-less variant if present
+  if (base.endsWith('.exe')) out.add(stripBitness(base.replace(/\.exe$/, '')));
+
+  return Array.from(out);
+};
+
+/**
+ * Decide whether a known executable entry matches the running process.
+ * Mirrors legacy behavior but is easier to read & extend.
+ */
+const matchesKnownExe = (known, candidates, cwdPath, argsStr) => {
+  if (!known || known.is_launcher) return false;
+  const kname = known.name || '';
+  const needsArgs = Boolean(known.arguments);
+  const hasReqArgs = !needsArgs || (argsStr && argsStr.includes(known.arguments));
+
+  // Special '>' syntax: require exact match to the first candidate
+  if (kname[0] === '>') {
+    return candidates[0] === kname.slice(1) && hasReqArgs;
+  }
+
+  // Try direct name and common variants across all candidates
+  for (const cand of candidates) {
+    const running = cand;
+    if (kname === running) return hasReqArgs;
+    if (kname === `${running}.exe`) return hasReqArgs;
+    if (kname === running.replace(/\.exe$/, '')) return hasReqArgs;
+    if (String(running).includes(`/${kname}`)) return hasReqArgs; // handles cwd + filename
+  }
+
+  // Temporary compatibility for known problematic titles
+  if (kname.includes('zenlesszonezero') && candidates.some(c => String(c).includes('zenlesszonezero'))) {
+    return hasReqArgs;
+  }
+
+  // Last resort: allow arg-only matches (previous behavior)
+  return needsArgs && hasReqArgs;
+};
+// -------------------------------------------------------------------------
+
 const timestamps = {}, names = {}, pids = {};
 export default class ProcessServer {
   constructor(handlers) {
@@ -79,128 +154,58 @@ export default class ProcessServer {
       if (_path.includes('webhelper')) continue; // CEF Processes
       // TODO: add 'dolphin-emu' to database for linux executable
       if (_path.endsWith('/bin/dolphin')) continue; // KDE file manager, not Dolphin Emulator
-      const toCompare = [];
-      let newPath
-      if (path.includes(' --')) {
-        newPath = path.split(' --')[0];
-      }
-      else {
-        newPath = path;
-      }
-      newPath = newPath.substr(newPath.lastIndexOf('/') + 1);
+      const argsStr = Array.isArray(args) ? args.join(' ') : '';
 
-      // log(`performance checkpoint: ${(performance.now() - startTime).toFixed(2)}ms`);
+      const toCompare = buildCandidates(path, cwdPath);
 
-      toCompare.push(newPath);
-      if (path.includes('.exe')) {
-        const part2 = path.split('/').slice(-2).join('/');
-        toCompare.push(part2);
-        replaceAll(toCompare, bitness_suffixes);
-      }
-
-      // TODO: Convert into an inline function similar to findInObjArray
-      // TODO: Don't try to match the running executable more than once
+      // Matching against database (cleaned up)
       for (const { executables, id, name } of DetectableDB) {
-        if (
-          executables?.some((known_exe) => {
-            if (known_exe.is_launcher) return false;
-            if (known_exe.name[0] === '>') {
-              if (known_exe.name.substring(1) === toCompare[0]) {
-                // TODO: Deduplicate with that version at the end of the following 'else' statement
-                if (args && known_exe.arguments) {
-                  debug(`Match Level 1: "${name}" via ${known_exe.name} <==> ${running}`);
-                  return args.join(" ").indexOf(known_exe.arguments) > -1;
-                }
-              }
-            } else {
-              if (
-                toCompare.some((running) => {
-                  // explicit match first
-                  if (known_exe.name === running) {
-                    debug(`Match Level 2: "${name}" via ${known_exe.name} <==> ${running}`)
-                    return true;
-                  }
-                  // Try comparing against an exe.suffixed version (Linux native games and such)
-                  if (known_exe.name === running + '.exe') {
-                    debug(`Match Level 3: "${name}" via ${known_exe.name} <==> ${running}`)
-                    return true
-                  }
-                  // Try comparing against an exe-less version (mistake in database)
-                  if (known_exe.name === running.replace('.exe', '')) {
-                    debug(`Match Level 4: "${name}" via ${known_exe.name} <==> ${running}`)
-                    return true
-                  }
-                  if (`${cwdPath}/${running}`.includes(`/${known_exe.name}`)
-                  ) {
-                    debug(`Match Level 5: "${name}" via [${running}] with 'if ([${cwdPath}}/{${running}].includes(/[${known_exe.name}])'`)
-                    return true;
-                  }
-                  if (
-                    running.includes('zenlesszonezero') &&
-                    known_exe.name.includes('zenlesszonezero')
-                  ) {
-                    // log(
-                    //   `WARNING: Failed to match known problematic but running game '${known_exe.name}' via '${running}\n`,
-                    //   'The database needs to be fixed to make the following match succeed:\n',
-                    //   `Running ==> [${running}] <==> [${known_exe.name}] <== Database`,
-                    // );
-                    return true
-                  }
-                })
-              ) {
-                return true;
-              }
-            }
-            if (args && known_exe.arguments) return args.join(" ").indexOf(known_exe.arguments) > -1;
-          })
-        ) {
-          names[id] = name;
-          pids[id] = pid;
+        if (!executables || !Array.isArray(executables)) continue;
 
-          ids.push(id);
-          if (!timestamps[id]) {
-            log('detected game!', name);
-            timestamps[id] = Date.now();
-          }
+        const matched = executables.some((k) => matchesKnownExe(k, toCompare, cwdPath, argsStr));
+        if (!matched) continue;
 
-          // Resending this on evry scan is intentional, so that in the case that arRPC scans processes before Discord, existing activities will be sent
-          this.handlers.message({
-            socketId: id
-          }, {
-            cmd: 'SET_ACTIVITY',
-            args: {
-              activity: {
-                application_id: id,
-                name,
-                timestamps: {
-                  start: timestamps[id]
-                }
-              },
-              pid
-            }
-          });
+        names[id] = name;
+        pids[id] = pid;
+        ids.push(id);
+
+        if (!timestamps[id]) {
+          log('detected game!', name);
+          timestamps[id] = Date.now();
         }
-      }
-    }
 
-    for (const id in timestamps) {
-      if (!ids.includes(id)) {
-        log('lost game!', names[id]);
-        delete timestamps[id];
-
-        this.handlers.message({
-          socketId: id
-        }, {
+        // Re-send activity each scan to cover Discord startup races
+        this.handlers.message({ socketId: id }, {
           cmd: 'SET_ACTIVITY',
           args: {
-            activity: null,
-            pid: pids[id]
+            activity: {
+              application_id: id,
+              name,
+              timestamps: { start: timestamps[id] }
+            },
+            pid
           }
         });
-      }
-    }
 
-    // log(`finished scan in ${(performance.now() - startTime).toFixed(2)}ms`);
-    // process.stdout.write(`\r${' '.repeat(100)}\r[${rgb(88, 101, 242, 'arRPC')} > ${rgb(237, 66, 69, 'process')}] scanned (took ${(performance.now() - startTime).toFixed(2)}ms)\n`);
+        for (const id in timestamps) {
+          if (!ids.includes(id)) {
+            log('lost game!', names[id]);
+            delete timestamps[id];
+
+            this.handlers.message({
+              socketId: id
+            }, {
+              cmd: 'SET_ACTIVITY',
+              args: {
+                activity: null,
+                pid: pids[id]
+              }
+            });
+          }
+        }
+      }
+      // log(`finished scan in ${(performance.now() - startTime).toFixed(2)}ms`);
+      // process.stdout.write(`\r${' '.repeat(100)}\r[${rgb(88, 101, 242, 'arRPC')} > ${rgb(237, 66, 69, 'process')}] scanned (took ${(performance.now() - startTime).toFixed(2)}ms)\n`);
+    }
   }
 }
