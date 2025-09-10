@@ -23,7 +23,7 @@ function replaceAll(sentence, wordsToReplace) {
   return Object.keys(wordsToReplace).reduce(
     (f, s, i) =>
       `${f}`.replace(new RegExp(s, 'ig'), wordsToReplace[s]),
-      sentence
+    sentence
   )
 }
 
@@ -36,7 +36,7 @@ const bitness_suffixes = {
 
 String.prototype.replaceArray = function(find, replace) {
   var replaceString = this;
-  var regex; 
+  var regex;
   for (var i = 0; i < find.length; i++) {
     regex = new RegExp(find[i], "g");
     replaceString = replaceString.replace(regex, replace[i]);
@@ -83,8 +83,7 @@ export default class ProcessServer {
       if (path.includes(' --')) {
         newPath = path.split(' --')[0];
       }
-      else
-      {
+      else {
         newPath = path;
       }
       newPath = newPath.substr(newPath.lastIndexOf('/') + 1);
@@ -121,12 +120,12 @@ export default class ProcessServer {
                     return true;
                   }
                   // Try comparing against an exe.suffixed version (Linux native games and such)
-                  if (known_exe.name === running+'.exe') {
+                  if (known_exe.name === running + '.exe') {
                     // log(`Match Level 3: "${name}" via ${known_exe.name} <==> ${running}`)
                     return true
                   }
                   // Try comparing against an exe-less version (mistake in database)
-                  if (known_exe.name === running.replace('.exe','')) {
+                  if (known_exe.name === running.replace('.exe', '')) {
                     // log(`Match Level 4: "${name}" via ${known_exe.name} <==> ${running}`)
                     return true
                   }
